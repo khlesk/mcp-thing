@@ -1,0 +1,73 @@
+{
+  "name": "mcp-thing",
+  "version": "0.1.0",
+  "description": "Reflection-based CLI to expose TypeScript classes as MCP tools over stdio.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khlesk/mcp-thing.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "test": "jest",
+    "clean": "rm -rf dist tests/test-services/dist tests/test-services/node_modules",
+    "prepack": "npm run build",
+    "format:check": "biome format .",
+    "format:fix": "biome format --write .",
+    "lint:check": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "check": "biome check .",
+    "check:fix": "biome check --write ."
+  },
+  "bin": {
+    "mcp-thing": "dist/cli.js",
+    "mcpt": "dist/cli.js"
+  },
+
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.13",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.4.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "files": [
+    "dist/**",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "json-rpc-2.0": "^1.7.1",
+    "ts-morph": "^28.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "json-rpc",
+    "stdio",
+    "typescript",
+    "ts-morph",
+    "cli",
+    "codegen"
+  ],
+  "author": "Nik Unknown",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
