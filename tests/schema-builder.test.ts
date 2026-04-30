@@ -174,5 +174,186 @@ describe('SchemaBuilder', () => {
       expect(schema.properties).toEqual({});
       expect(schema.required).toBeUndefined();
     });
+
+    it('should preserve optional number unions and constraints', () => {
+      const metadata: MethodMetadata = {
+        name: 'search',
+        description: 'Search',
+        parameters: [
+          {
+            name: 'count',
+            description: 'Maximum result count',
+            type: 'number | undefined',
+            required: false,
+            constraints: {
+              minimum: 1,
+              maximum: 500,
+              default: 50,
+            },
+          },
+        ],
+      };
+
+      const schema = builder.buildInputSchema(metadata);
+
+      expect(schema.properties.count).toEqual({
+        type: 'number',
+        description: 'Maximum result count',
+        minimum: 1,
+        maximum: 500,
+        default: 50,
+      });
+      expect(schema.required).toBeUndefined();
+    });
+
+    it('should infer string literal unions as enums', () => {
+      const metadata: MethodMetadata = {
+        name: 'search',
+        description: 'Search',
+        parameters: [
+          {
+            name: 'by',
+            description: 'Search field',
+            type: '"name" | "description"',
+            required: false,
+          },
+        ],
+      };
+
+      const schema = builder.buildInputSchema(metadata);
+
+      expect(schema.properties.by).toEqual({
+        type: 'string',
+        enum: ['name', 'description'],
+        description: 'Search field',
+      });
+    });
+
+    it('should infer array item enums', () => {
+      const metadata: MethodMetadata = {
+        name: 'filter',
+        description: 'Filter',
+        parameters: [
+          {
+            name: 'fields',
+            description: 'Fields',
+            type: 'Array<"name" | "votes">',
+            required: true,
+          },
+        ],
+      };
+
+      const schema = builder.buildInputSchema(metadata);
+
+      expect(schema.properties.fields).toEqual({
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: ['name', 'votes'],
+        },
+        description: 'Fields',
+      });
+    });
+
+    it('should prefer resolved parameter schemas over type text fallback', () => {
+      const metadata: MethodMetadata = {
+        name: 'search',
+        description: 'Search',
+        parameters: [
+          {
+            name: 'options',
+            description: 'Search options',
+            type: 'SearchOptions',
+            schema: {
+              type: 'object',
+              properties: {
+                by: { type: 'string', enum: ['name', 'description'] },
+                count: { type: 'number' },
+              },
+              required: ['by'],
+            },
+            required: true,
+          },
+        ],
+      };
+
+      const schema = builder.buildInputSchema(metadata);
+
+      expect(schema.properties.options).toEqual({
+        type: 'object',
+        properties: {
+          by: { type: 'string', enum: ['name', 'description'] },
+          count: { type: 'number' },
+        },
+        required: ['by'],
+        description: 'Search options',
+      });
+    });
+  });
+
+  describe('buildOutputSchema', () => {
+    it('should infer simple object return schemas', () => {
+      const metadata: MethodMetadata = {
+        name: 'search',
+        description: 'Search',
+        returnType: '{ packages: string[]; total: number; }',
+        parameters: [],
+      };
+
+      const schema = builder.buildOutputSchema(metadata);
+
+      expect(schema).toEqual({
+        type: 'object',
+        properties: {
+          packages: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+          total: { type: 'number' },
+        },
+        required: ['packages', 'total'],
+      });
+    });
+
+    it('should wrap primitive return schemas in result', () => {
+      const metadata: MethodMetadata = {
+        name: 'explain',
+        description: 'Explain',
+        returnType: 'string',
+        parameters: [],
+      };
+
+      expect(builder.buildOutputSchema(metadata)).toEqual({
+        type: 'object',
+        properties: {
+          result: { type: 'string' },
+        },
+        required: ['result'],
+      });
+    });
+
+    it('should prefer resolved return schemas over type text fallback', () => {
+      const metadata: MethodMetadata = {
+        name: 'search',
+        description: 'Search',
+        returnType: 'SearchResult',
+        returnSchema: {
+          type: 'object',
+          properties: {
+            total: { type: 'number' },
+          },
+          required: ['total'],
+        },
+        parameters: [],
+      };
+
+      expect(builder.buildOutputSchema(metadata)).toEqual({
+        type: 'object',
+        properties: {
+          total: { type: 'number' },
+        },
+        required: ['total'],
+      });
+    });
   });
 });

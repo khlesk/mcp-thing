@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { JSONRPCServer } from 'json-rpc-2.0';
+import type { ResultMode } from './ast-parser.js';
 import { Logger } from './logger.js';
 import { SchemaBuilder } from './schema-builder.js';
 import {
@@ -9,9 +10,22 @@ import {
 } from './server-info.js';
 import type { ServiceContainer } from './service-container.js';
 
+type TextContent = {
+  type: 'text';
+  text: string;
+};
+
+export interface ToolResult {
+  content?: TextContent[];
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
+}
+
 export interface TransportOptions {
   serverInfo?: Partial<ServerInfo>;
   logger?: Logger;
+  resultMode?: ResultMode;
 }
 
 export class Transport {
@@ -20,16 +34,18 @@ export class Transport {
   private serviceContainer: ServiceContainer;
   private serverInfo: ServerInfo;
   private logger: Logger;
+  private resultMode: ResultMode;
 
   constructor(
     serviceContainer: ServiceContainer,
     options: TransportOptions = {},
   ) {
     this.server = new JSONRPCServer();
-    this.schemaBuilder = new SchemaBuilder();
+    this.schemaBuilder = new SchemaBuilder(options.logger);
     this.serviceContainer = serviceContainer;
     this.serverInfo = mergeServerInfo(DEFAULT_SERVER_INFO, options.serverInfo);
     this.logger = options.logger || new Logger();
+    this.resultMode = options.resultMode || 'structured';
     this.setupHandlers();
   }
 
@@ -54,6 +70,11 @@ export class Transport {
 
       for (const service of services) {
         for (const method of service.methods) {
+          const resultMode = method.resultMode || this.resultMode;
+          const outputSchema =
+            resultMode === 'structured'
+              ? this.schemaBuilder.buildOutputSchema(method)
+              : undefined;
           tools.push({
             name: this.serviceContainer.getToolName(service, method),
             description: method.description,
@@ -62,6 +83,15 @@ export class Transport {
               properties: Record<string, object>;
               required?: string[];
             },
+            ...(outputSchema
+              ? {
+                  outputSchema: outputSchema as {
+                    type: 'object';
+                    properties?: Record<string, object>;
+                    required?: string[];
+                  },
+                }
+              : {}),
           });
         }
       }
@@ -76,18 +106,11 @@ export class Transport {
         try {
           const { name, arguments: args } = params;
           const result = await this.serviceContainer.execute(name, args || {});
+          const metadata = this.serviceContainer.getToolMetadata?.(name);
+          const resultMode =
+            metadata?.method.resultMode || this.resultMode || 'structured';
 
-          return {
-            content: [
-              {
-                type: 'text',
-                text:
-                  typeof result === 'string'
-                    ? result
-                    : JSON.stringify(result, null, 2),
-              },
-            ],
-          };
+          return this.normalizeToolResult(result, resultMode);
         } catch (error: unknown) {
           return {
             isError: true,
@@ -136,6 +159,62 @@ export class Transport {
     });
 
     this.logger.started(this.getExportedToolNames());
+  }
+
+  private normalizeToolResult(
+    result: unknown,
+    resultMode: ResultMode,
+  ): ToolResult {
+    if (this.isToolResult(result)) {
+      return {
+        ...result,
+        content: result.content || [],
+      };
+    }
+
+    if (resultMode === 'content') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: this.toTextContent(result),
+          },
+        ],
+      };
+    }
+
+    return {
+      content: [],
+      structuredContent: this.toStructuredContent(result),
+    };
+  }
+
+  private isToolResult(result: unknown): result is ToolResult {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      return false;
+    }
+
+    return (
+      'content' in result ||
+      'structuredContent' in result ||
+      'isError' in result
+    );
+  }
+
+  private toStructuredContent(result: unknown): Record<string, unknown> {
+    if (result === undefined) return {};
+
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      return result as Record<string, unknown>;
+    }
+
+    return { result };
+  }
+
+  private toTextContent(result: unknown): string {
+    if (typeof result === 'string') return result;
+    if (result === undefined) return '';
+    return JSON.stringify(result, null, 2);
   }
 
   private getExportedToolNames(): string[] {

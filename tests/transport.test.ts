@@ -23,6 +23,7 @@ describe('Transport', () => {
       getToolName: jest.fn((service: ServiceMetadata, method: any) => {
         return method.toolName || `${service.className}_${method.name}`;
       }),
+      getToolMetadata: jest.fn(),
       execute: jest.fn(),
     };
 
@@ -145,6 +146,7 @@ describe('Transport', () => {
             {
               name: 'extractArticles',
               description: 'Extracts article text',
+              returnType: '{ articles: string[]; }',
               parameters: [
                 {
                   name: 'urls',
@@ -181,10 +183,95 @@ describe('Transport', () => {
         items: { type: 'string' },
         description: 'Article URLs',
       });
+      expect(response.result.tools[0].outputSchema).toEqual({
+        type: 'object',
+        properties: {
+          articles: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        required: ['articles'],
+      });
     });
 
-    it('should handle tools/call request', async () => {
+    it('should not expose output schemas for content-mode tools', async () => {
+      const mockMeta: ServiceMetadata[] = [
+        {
+          className: 'ArticleService',
+          fileName: 'test.ts',
+          methods: [
+            {
+              name: 'extractArticles',
+              description: 'Extracts article text',
+              resultMode: 'content',
+              returnType: '{ articles: string[]; }',
+              parameters: [],
+            },
+          ],
+        },
+      ];
+      serviceContainer.getAllToolsMetadata.mockReturnValue(mockMeta);
+
+      await transport.listen();
+
+      mockStdin.emit(
+        'data',
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 23,
+          method: 'tools/list',
+          params: {},
+        })}\n`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const response = getJsonResponse();
+      expect(response).not.toBeNull();
+      expect(response.result.tools[0].outputSchema).toBeUndefined();
+    });
+
+    it('should not expose output schemas when global content mode is configured', async () => {
+      const mockMeta: ServiceMetadata[] = [
+        {
+          className: 'ArticleService',
+          fileName: 'test.ts',
+          methods: [
+            {
+              name: 'extractArticles',
+              description: 'Extracts article text',
+              returnType: '{ articles: string[]; }',
+              parameters: [],
+            },
+          ],
+        },
+      ];
+      serviceContainer.getAllToolsMetadata.mockReturnValue(mockMeta);
+      transport = new Transport(serviceContainer, { resultMode: 'content' });
+
+      await transport.listen();
+
+      mockStdin.emit(
+        'data',
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 24,
+          method: 'tools/list',
+          params: {},
+        })}\n`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const response = getJsonResponse();
+      expect(response).not.toBeNull();
+      expect(response.result.tools[0].outputSchema).toBeUndefined();
+    });
+
+    it('should return structured content by default', async () => {
       serviceContainer.execute.mockResolvedValue('success');
+      serviceContainer.getToolMetadata.mockReturnValue(undefined);
 
       await transport.listen();
 
@@ -206,7 +293,141 @@ describe('Transport', () => {
       const response = getJsonResponse();
       expect(response).not.toBeNull();
       expect(response.id).toBe(3);
-      expect(response.result.content[0].text).toBe('success');
+      expect(response.result.content).toEqual([]);
+      expect(response.result.structuredContent).toEqual({ result: 'success' });
+    });
+
+    it('should support per-tool content mode', async () => {
+      serviceContainer.execute.mockResolvedValue({ ok: true });
+      serviceContainer.getToolMetadata.mockReturnValue({
+        service: { className: 'TestService', fileName: 'test.ts', methods: [] },
+        method: {
+          name: 'testMethod',
+          description: 'A test method',
+          resultMode: 'content',
+          parameters: [],
+        },
+      });
+
+      await transport.listen();
+
+      mockStdin.emit(
+        'data',
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 33,
+          method: 'tools/call',
+          params: {
+            name: 'TestService_testMethod',
+            arguments: { a: 1 },
+          },
+        })}\n`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const response = getJsonResponse();
+      expect(response).not.toBeNull();
+      expect(response.id).toBe(33);
+      expect(response.result.content[0].text).toBe(
+        JSON.stringify({ ok: true }, null, 2),
+      );
+      expect(response.result.structuredContent).toBeUndefined();
+    });
+
+    it('should return valid text content for undefined in content mode', async () => {
+      serviceContainer.execute.mockResolvedValue(undefined);
+      serviceContainer.getToolMetadata.mockReturnValue({
+        service: { className: 'TestService', fileName: 'test.ts', methods: [] },
+        method: {
+          name: 'testMethod',
+          description: 'A test method',
+          resultMode: 'content',
+          parameters: [],
+        },
+      });
+
+      await transport.listen();
+
+      mockStdin.emit(
+        'data',
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 36,
+          method: 'tools/call',
+          params: {
+            name: 'TestService_testMethod',
+            arguments: {},
+          },
+        })}\n`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const response = getJsonResponse();
+      expect(response).not.toBeNull();
+      expect(response.result.content).toEqual([{ type: 'text', text: '' }]);
+    });
+
+    it('should pass through explicit tool results', async () => {
+      serviceContainer.execute.mockResolvedValue({
+        isError: true,
+        content: [{ type: 'text', text: 'Partial failure' }],
+        structuredContent: { failed: 2 },
+      });
+
+      await transport.listen();
+
+      mockStdin.emit(
+        'data',
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 34,
+          method: 'tools/call',
+          params: {
+            name: 'TestService_testMethod',
+            arguments: {},
+          },
+        })}\n`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const response = getJsonResponse();
+      expect(response).not.toBeNull();
+      expect(response.result).toEqual({
+        isError: true,
+        content: [{ type: 'text', text: 'Partial failure' }],
+        structuredContent: { failed: 2 },
+      });
+    });
+
+    it('should return text content for thrown tool errors', async () => {
+      serviceContainer.execute.mockRejectedValue(new Error('Bad request'));
+
+      await transport.listen();
+
+      mockStdin.emit(
+        'data',
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 35,
+          method: 'tools/call',
+          params: {
+            name: 'TestService_testMethod',
+            arguments: {},
+          },
+        })}\n`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const response = getJsonResponse();
+      expect(response).not.toBeNull();
+      expect(response.result).toEqual({
+        isError: true,
+        content: [{ type: 'text', text: 'Bad request' }],
+      });
     });
 
     it('should log startup with exported tool names', async () => {

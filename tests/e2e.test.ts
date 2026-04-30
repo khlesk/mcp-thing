@@ -151,7 +151,9 @@ describe('E2E External Services', () => {
     });
 
     expect(response.result).toBeDefined();
-    expect(response.result.content).toBeDefined();
-    expect(response.result.content[0].text).toBe('HELLO, WORLD!');
+    expect(response.result.content).toEqual([]);
+    expect(response.result.structuredContent).toEqual({
+      result: 'HELLO, WORLD!',
+    });
   });
 });

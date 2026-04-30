@@ -90,6 +90,12 @@ export class ServiceContainer {
     return method.toolName || `${service.className}_${method.name}`;
   }
 
+  public getToolMetadata(
+    toolName: string,
+  ): { service: ServiceMetadata; method: MethodMetadata } | undefined {
+    return this.findToolByName(toolName);
+  }
+
   private findToolByName(
     toolName: string,
   ): { service: ServiceMetadata; method: MethodMetadata } | undefined {

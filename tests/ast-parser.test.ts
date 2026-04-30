@@ -77,6 +77,87 @@ describe('AstParser', () => {
       expect(extractMethod?.parameters[0].name).toBe('urls');
       expect(extractMethod?.parameters[0].type).toBe('string[]');
     });
+
+    it('should support tool ignores, constraints, result mode, and return types', () => {
+      const result = parser.parseServiceFiles('tests/fixtures');
+
+      expect(
+        result.find((s) => s.className === 'IgnoredService'),
+      ).toBeUndefined();
+      expect(
+        result.find((s) => s.className === 'EmptyService'),
+      ).toBeUndefined();
+
+      const advancedService = result.find(
+        (s) => s.className === 'AdvancedService',
+      );
+      expect(advancedService).toBeDefined();
+      expect(
+        advancedService?.methods.find((m) => m.name === 'ignoredMethod'),
+      ).toBeUndefined();
+
+      const searchMethod = advancedService?.methods.find(
+        (m) => m.name === 'search',
+      );
+      expect(searchMethod?.returnType).toBe(
+        '{ packages: string[]; total: number; }',
+      );
+      expect(searchMethod?.parameters[0].constraints).toEqual({
+        minLength: 2,
+      });
+      expect(searchMethod?.parameters[1].required).toBe(false);
+      expect(searchMethod?.parameters[1].constraints).toEqual({
+        default: 'name',
+      });
+      expect(searchMethod?.parameters[2].required).toBe(false);
+      expect(searchMethod?.parameters[2].constraints).toEqual({
+        minimum: 1,
+        maximum: 500,
+        default: 50,
+      });
+
+      const explainMethod = advancedService?.methods.find(
+        (m) => m.name === 'explain',
+      );
+      expect(explainMethod?.resultMode).toBe('content');
+    });
+
+    it('should resolve simple named aliases, enums, and object types', () => {
+      const result = parser.parseServiceFiles('tests/fixtures');
+      const advancedService = result.find(
+        (s) => s.className === 'AdvancedService',
+      );
+      const method = advancedService?.methods.find(
+        (m) => m.name === 'searchWithTypes',
+      );
+
+      expect(method?.parameters[0].schema).toEqual({
+        type: 'object',
+        properties: {
+          keyword: { type: 'string' },
+          count: { type: 'number' },
+          by: { type: 'string', enum: ['name', 'description'] },
+          sort: { type: 'string', enum: ['name', 'votes'] },
+          tags: {
+            type: 'array',
+            items: { type: 'string', enum: ['name', 'description'] },
+          },
+        },
+        required: ['keyword', 'by', 'sort', 'tags'],
+      });
+      expect(method?.returnSchema).toEqual({
+        type: 'object',
+        properties: {
+          packages: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+          total: { type: 'number' },
+          options: method?.parameters[0].schema,
+        },
+        required: ['packages', 'total', 'options'],
+      });
+    });
   });
 
   describe('parseServiceFilesWithMeta', () => {

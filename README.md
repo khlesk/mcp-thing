@@ -2,17 +2,20 @@
 
 Expose TypeScript classes as MCP (Model Context Protocol) tools over stdio.
 
-`mcp-thing` is meant for quick MCP server development: write a class, add public
-methods, and point the CLI at the directory. It parses your TypeScript source,
-turns public methods into MCP tools, and serves them over stdin/stdout.
+`mcp-thing` is the fast, easy way to create a fully working MCP service: write
+TypeScript classes, export them, and point the CLI at the directory. Public
+methods become MCP tools, JSDoc becomes tool documentation, and TypeScript types
+become MCP JSON schemas.
 
 ## Requirements
 
 - Node.js 18+
 - A TypeScript services directory
-- `npm install` run in the services directory if your services import external dependencies
+- `npm install` in the services directory if your services import dependencies
 
-## Minimal service
+## Quick Start With npx
+
+Create a service:
 
 ```ts
 // services/EchoService.ts
@@ -33,79 +36,81 @@ Run it:
 npx mcp-thing --run ./services
 ```
 
-The exported MCP tool will be named `EchoService_echo`.
+The exported tool is named `EchoService_echo`.
+
+You can also use the short binary name:
+
+```sh
+npx -p mcp-thing mcpt --run ./services
+```
 
 ## Install
 
-Install globally if you want the `mcpt` command:
+Install globally if you want the `mcpt` command available everywhere:
 
 ```sh
 npm install -g mcp-thing
 ```
 
-## CLI
-
-### Run
+Run a services directory:
 
 ```sh
-mcpt --run <servicesDir>
+mcpt --run ./services
 ```
 
-- `<servicesDir>` should be a TypeScript project directory (like `examples/`) containing your MCP services.
-- Runs the MCP transport using the TypeScript services directory (it parses the `.ts` sources, not the compiled output).
-- Transport: stdio only.
-
-You can also omit `--run` and pass the services directory as the first positional argument:
+You can omit `--run` and pass the directory directly:
 
 ```sh
 mcpt ./services
 ```
 
-### Compile
+## Compile
 
-```sh
-mcpt --compile <source> <dist?>
-```
-
-- `<source>` should be a TypeScript project directory (like `examples/`) containing your MCP services.
-- Compiles TypeScript services into JavaScript output (defaults to `<source>/dist`).
-- `<dist?>` is the compiled JavaScript output directory.
-
-Example:
+Compile a TypeScript services directory into a standalone JavaScript MCP server.
+For best startup performance in MCP clients, compile your service and run the
+generated JavaScript entrypoint instead of parsing TypeScript on every launch:
 
 ```sh
 mcpt --compile ./services
+```
+
+By default this writes to `./services/dist`. You can provide a custom output
+directory:
+
+```sh
+mcpt --compile ./services ./build/mcp
+```
+
+Run the compiled server:
+
+```sh
 cd ./services/dist
 npm install
 node index.js
 ```
 
-This produces a standalone compiled server in `./services/dist`.
+Compiled output includes:
 
-### Options
+- `index.js` — generated MCP server entrypoint
+- `schema-manifest.json` — discovered services, tools, schemas, and result modes
+- emitted service `.js` files
+- `package.json` with the runtime dependency on `mcp-thing`
 
-- `--server-name <name>` — overrides the MCP `serverInfo.name`
-- `--server-version <version>` — overrides the MCP `serverInfo.version`
-- `--verbose` — enables detailed stderr logs
-- `--silent` — suppresses non-error stderr logs, including the startup notice
+## CLI Options
 
-## MCP client config
+- `--server-name <name>` — override MCP `serverInfo.name`
+- `--server-version <version>` — override MCP `serverInfo.version`
+- `--result-mode <structured|content>` — choose global successful result format
+- `--verbose` — enable detailed stderr logs
+- `--silent` — suppress non-error stderr logs, including startup notice
 
-Most MCP clients launch stdio servers with a command and args. For a global
-install, use:
+The default result mode is `structured`.
 
-```json
-{
-  "mcpServers": {
-    "my-tools": {
-      "command": "mcpt",
-      "args": ["--run", "/absolute/path/to/services"]
-    }
-  }
-}
-```
+## MCP Client Config
 
-With `npx`, use:
+Most MCP clients launch stdio servers with a command and args.
+
+With `npx`:
 
 ```json
 {
@@ -118,11 +123,20 @@ With `npx`, use:
 }
 ```
 
-For local iteration, `--run` is convenient because it reads the TypeScript
-services directly. For MCP clients, a compiled build usually starts faster
-because it can launch the generated JavaScript entrypoint directly.
+With a global install:
 
-For a compiled service build, point your client at the generated entrypoint:
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "mcpt",
+      "args": ["--run", "/absolute/path/to/services"]
+    }
+  }
+}
+```
+
+With compiled output:
 
 ```json
 {
@@ -135,26 +149,41 @@ For a compiled service build, point your client at the generated entrypoint:
 }
 ```
 
-## Tool discovery
+Use `--run` while iterating locally. Use compiled output when you want a faster,
+plain JavaScript startup path for MCP clients.
 
-Services and tools are discovered from your exported TypeScript classes:
+## Tool Discovery
 
-- Exported classes are treated as services.
-- Public methods are exposed as MCP tools.
+Tools are discovered from exported TypeScript classes:
+
+- Exported classes are services.
+- Public methods are tools.
 - Private methods and constructors are ignored.
+- Classes with no exposed methods are skipped.
+- Use `@mcpIgnore` to skip an exported helper class or a public method.
 
-Tool metadata is derived from method names and JSDoc:
+```ts
+/**
+ * @mcpIgnore
+ */
+export class HelperError extends Error {}
 
-- The default tool name is `<ClassName>_<methodName>`.
-- Use `@mcpToolName` in JSDoc to override the default tool name.
-- Method JSDoc becomes the tool description.
-- `@param` JSDoc becomes parameter descriptions.
+export class PackageService {
+  /**
+   * @mcpIgnore
+   */
+  public internalDebug(): string {
+    return 'debug';
+  }
+}
+```
 
-Parameter schemas currently support:
+Tool metadata comes from names and JSDoc:
 
-- `string`, `number`, `boolean`, `T[]`, and `Array<T>`. Other types currently fall back to `string`.
-
-Example:
+- Default tool name: `<ClassName>_<methodName>`
+- `@mcpToolName <name>` overrides the tool name
+- Method JSDoc description becomes the MCP tool description
+- `@param` descriptions become parameter descriptions
 
 ```ts
 export class GreetingService {
@@ -169,29 +198,271 @@ export class GreetingService {
 }
 ```
 
-## Server identity
+## Input Schemas
 
-You can also set `serverInfo.name` and `serverInfo.version` via class-level JSDoc on any exported service class:
+`mcp-thing` infers MCP input schemas from TypeScript method parameters.
+
+Supported inference includes:
+
+- `string`, `number`, `boolean`
+- optional parameters like `count?: number`
+- optional/nullish unions like `number | undefined` and `string | null`
+- arrays like `string[]` and `Array<number>`
+- literal unions as enums, like `'name' | 'description'`
+- named type aliases for simple supported types
+- TypeScript enums and const enums with string or number values
+- plain object, type alias, and interface shapes with simple properties
+- recursive array item schemas, including enum arrays
+
+Unsupported complex types degrade to a simpler schema and produce a warning
+instead of silently pretending the schema is precise.
+
+```ts
+export class SearchService {
+  /**
+   * Searches packages.
+   * @param keyword Search term.
+   * @param by Search field.
+   * @param count Maximum number of results.
+   */
+  public search(
+    keyword: string,
+    by: 'name' | 'description' = 'name',
+    count?: number,
+  ) {
+    return { packages: [], total: 0 };
+  }
+}
+```
+
+This exposes `by` as a string enum and `count` as an optional number.
+
+Named simple types work too:
+
+```ts
+type SearchBy = 'name' | 'description' | 'maintainer';
+
+enum SortBy {
+  Name = 'name',
+  Votes = 'votes',
+}
+
+interface SearchOptions {
+  keyword: string;
+  by: SearchBy;
+  sort: SortBy;
+  count?: number;
+}
+
+export class SearchService {
+  public search(options: SearchOptions) {
+    return { packages: [], total: 0 };
+  }
+}
+```
+
+This exposes `options` as an object schema, `by` and `sort` as enums, and
+`count` as an optional number.
+
+Intentionally unsupported complex TypeScript features include generics, mapped
+types, conditional types, recursive types, inheritance-heavy classes, and
+utility types like `Partial<T>`, `Pick<T>`, and `Record<K, V>`.
+
+## Optional Schema Constraints
+
+You can enrich inferred input schemas with optional JSDoc tags. These tags are
+not required; use them only when clients should discover validation details.
+
+Supported parameter constraint tags:
+
+- `@minLength <param> <number>`
+- `@maxLength <param> <number>`
+- `@minimum <param> <number>`
+- `@maximum <param> <number>`
+- `@exclusiveMinimum <param> <number>`
+- `@exclusiveMaximum <param> <number>`
+- `@default <param> <value>`
+- `@minItems <param> <number>`
+- `@maxItems <param> <number>`
+- `@pattern <param> <regex>`
+- `@format <param> <format>`
+
+Example:
+
+```ts
+export class AurService {
+  /**
+   * Searches AUR packages.
+   * @param keyword Search term.
+   * @minLength keyword 2
+   * @param by Search field.
+   * @default by name
+   * @param count Maximum result count.
+   * @minimum count 1
+   * @maximum count 500
+   * @default count 50
+   */
+  public search(
+    keyword: string,
+    by: 'name' | 'description' | 'maintainer' = 'name',
+    count?: number,
+  ) {
+    return { packages: [], total: 0 };
+  }
+}
+```
+
+Clients will see `keyword.minLength`, `by.enum`, `by.default`, `count.minimum`,
+`count.maximum`, and `count.default` in the input schema.
+
+## Output Schemas
+
+`mcp-thing` also infers output schemas from simple return types, including
+plain object aliases and interfaces.
+
+```ts
+public packageInfo(name: string): { name: string; version: string } {
+  return { name, version: '1.0.0' };
+}
+```
+
+This emits an MCP `outputSchema` for:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "version": { "type": "string" }
+  },
+  "required": ["name", "version"]
+}
+```
+
+Primitive and array returns are wrapped as `{ "result": value }` in structured
+responses, so their output schemas are wrapped the same way.
+
+```ts
+public names(): string[] {
+  return ['yay', 'paru'];
+}
+```
+
+Produces structured content shaped like:
+
+```json
+{
+  "result": ["yay", "paru"]
+}
+```
+
+Complex return types may still be returned as structured data at runtime, but
+`outputSchema` is only emitted when the shape is simple enough to infer.
+
+## Tool Results
+
+Successful tool calls default to structured MCP results:
+
+```ts
+public info(name: string) {
+  return { name, version: '1.0.0' };
+}
+```
+
+Default MCP result:
+
+```json
+{
+  "content": [],
+  "structuredContent": {
+    "name": "yay",
+    "version": "1.0.0"
+  }
+}
+```
+
+This avoids duplicating JSON into both text content and structured content.
+`content` is still present because MCP requires it to be an array.
+
+Return behavior in structured mode:
+
+- plain objects become `structuredContent` as-is
+- strings, numbers, booleans, arrays, and null are wrapped as `{ "result": value }`
+- `undefined` becomes empty structured content `{}`
+- thrown errors become `{ isError: true, content: [{ type: "text", text: message }] }`
+
+### Content Mode
+
+Use content mode when a client only reads regular text content.
+
+Globally:
+
+```sh
+mcpt --run ./services --result-mode content
+```
+
+Per tool:
+
+```ts
+export class ExplainService {
+  /**
+   * Explains a package.
+   * @mcpResultMode content
+   */
+  public explain(name: string): string {
+    return `Package ${name} is maintained by ...`;
+  }
+}
+```
+
+In content mode, `structuredContent` is omitted and non-string values are
+serialized as JSON text.
+
+### Explicit ToolResult
+
+Most methods should return normal values. For advanced cases, a method can
+return a full MCP-style tool result to control `content`, `structuredContent`,
+and `isError` directly.
+
+```ts
+import type { ToolResult } from 'mcp-thing';
+
+export class ImportService {
+  public importPackages(): ToolResult {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: 'Imported 8 packages, failed 2.' }],
+      structuredContent: {
+        imported: 8,
+        failed: ['pkg-a', 'pkg-b'],
+      },
+    };
+  }
+}
+```
+
+This is optional and mainly useful for partial success or custom error
+formatting. For normal failures, throw an error.
+
+## Server Identity
+
+Set `serverInfo.name` and `serverInfo.version` with class-level JSDoc:
 
 ```ts
 /**
  * @mcpServerName My MCP Server
  * @mcpServerVersion 1.2.3
  */
-export class MyService {}
+export class MyService {
+  public ping(): string {
+    return 'pong';
+  }
+}
 ```
 
 CLI flags take precedence over JSDoc values.
 
 ## Examples
 
-Check `examples/CalculatorService.ts` for a small service with server identity,
+See `examples/CalculatorService.ts` for a small service with server identity,
 parameter descriptions, and a custom tool name.
-
-## Development
-
-```sh
-npm run dev
-npm run build
-npm test
-```

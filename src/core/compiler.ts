@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AstParser } from './ast-parser.js';
+import { AstParser, type ResultMode } from './ast-parser.js';
 import { Logger } from './logger.js';
 import {
   DEFAULT_SERVER_INFO,
@@ -11,6 +11,7 @@ import {
 
 export interface CompileOptions {
   serverInfo?: Partial<ServerInfo>;
+  resultMode?: ResultMode;
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -134,7 +135,7 @@ export class Compiler {
     this.generatePackageJson(absoluteOutputDir);
 
     // 5. Generate Entrypoint (index.js)
-    this.generateEntrypoint(absoluteOutputDir);
+    this.generateEntrypoint(absoluteOutputDir, options.resultMode);
   }
 
   private generatePackageJson(outputDir: string): void {
@@ -175,7 +176,10 @@ export class Compiler {
     return version;
   }
 
-  private generateEntrypoint(outputDir: string): void {
+  private generateEntrypoint(
+    outputDir: string,
+    resultMode: ResultMode = 'structured',
+  ): void {
     const entrypointContent = `import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -210,7 +214,7 @@ async function main() {
     await container.initialize();
     
     // 3. Start Transport
-    const transport = new Transport(container, { serverInfo, logger });
+    const transport = new Transport(container, { serverInfo, logger, resultMode: ${JSON.stringify(resultMode)} });
     await transport.listen();
 }
 

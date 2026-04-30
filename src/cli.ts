@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AstParser } from './core/ast-parser.js';
+import { AstParser, type ResultMode } from './core/ast-parser.js';
 import { Compiler } from './core/compiler.js';
 import { Logger } from './core/logger.js';
 import {
@@ -23,6 +23,7 @@ async function main() {
   let outputDir = '';
   let isCompileMode = false;
   const cliServerInfo: Partial<ServerInfo> = {};
+  let resultMode: ResultMode = 'structured';
   let verbose = false;
   let silent = false;
 
@@ -60,10 +61,24 @@ async function main() {
   args = serverNameResult.argv;
   const serverVersionResult = stripFlagWithValue(args, '--server-version');
   args = serverVersionResult.argv;
+  const resultModeResult = stripFlagWithValue(args, '--result-mode');
+  args = resultModeResult.argv;
 
   if (serverNameResult.value) cliServerInfo.name = serverNameResult.value;
   if (serverVersionResult.value)
     cliServerInfo.version = serverVersionResult.value;
+  if (resultModeResult.value) {
+    if (
+      resultModeResult.value !== 'structured' &&
+      resultModeResult.value !== 'content'
+    ) {
+      console.error(
+        'Error: --result-mode must be either "structured" or "content".',
+      );
+      process.exit(1);
+    }
+    resultMode = resultModeResult.value;
+  }
 
   const hasCompileFlag = args.includes('--compile');
   const hasRunFlag = args.includes('--run');
@@ -83,7 +98,7 @@ async function main() {
       console.error('Error: Compile mode requires a <source> directory.');
       console.error('Usage: mcpt --compile <source> <dist?>');
       console.error(
-        '       [--server-name <name>] [--server-version <version>] [--verbose] [--silent]',
+        '       [--server-name <name>] [--server-version <version>] [--result-mode <structured|content>] [--verbose] [--silent]',
       );
       process.exit(1);
     }
@@ -100,7 +115,7 @@ async function main() {
         console.error('Error: Run mode requires a <source> directory.');
         console.error('Usage: mcpt --run <source>');
         console.error(
-          '       [--server-name <name>] [--server-version <version>] [--verbose] [--silent]',
+          '       [--server-name <name>] [--server-version <version>] [--result-mode <structured|content>] [--verbose] [--silent]',
         );
         process.exit(1);
       }
@@ -118,7 +133,7 @@ async function main() {
     console.error('Usage: mcpt --run <source>');
     console.error('   or: mcpt --compile <source> <dist?>');
     console.error(
-      '       [--server-name <name>] [--server-version <version>] [--verbose] [--silent]',
+      '       [--server-name <name>] [--server-version <version>] [--result-mode <structured|content>] [--verbose] [--silent]',
     );
     process.exit(1);
   }
@@ -167,6 +182,7 @@ async function main() {
     const compiler = new Compiler(tsconfigPath, logger);
     await compiler.compile(absoluteServicesDir, outputDir, {
       serverInfo: cliServerInfo,
+      resultMode,
     });
     logger.info('Compilation complete.');
     return;
@@ -211,6 +227,7 @@ async function main() {
   const transport = new Transport(container, {
     serverInfo: effectiveServerInfo,
     logger,
+    resultMode,
   });
   await transport.listen();
 }
