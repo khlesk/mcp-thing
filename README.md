@@ -3,15 +3,15 @@
 Expose TypeScript classes as MCP (Model Context Protocol) tools over stdio.
 
 `mcp-thing` is the fast, easy way to create a fully working MCP service: write
-TypeScript classes, export them, and point the CLI at the directory. Public
-methods become MCP tools, JSDoc becomes tool documentation, and TypeScript types
-become MCP JSON schemas.
+TypeScript classes, export them, and point the CLI at one service file or a
+directory of services. Public methods become MCP tools, JSDoc becomes tool
+documentation, and TypeScript types become MCP JSON schemas.
 
 ## Requirements
 
 - Node.js 18+
-- A TypeScript services directory
-- `npm install` in the services directory if your services import dependencies
+- A TypeScript service file or services directory
+- `npm install` in the service source directory if your services import dependencies
 
 ## Quick Start With npx
 
@@ -33,7 +33,7 @@ export class EchoService {
 Run it:
 
 ```sh
-npx mcp-thing --run ./services
+npx mcp-thing --run ./services/EchoService.ts
 ```
 
 The exported tool is named `EchoService_echo`.
@@ -52,32 +52,37 @@ Install globally if you want the `mcpt` command available everywhere:
 npm install -g mcp-thing
 ```
 
-Run a services directory:
+Run a service file or services directory:
 
 ```sh
+mcpt --run ./services/EchoService.ts
 mcpt --run ./services
 ```
 
-You can omit `--run` and pass the directory directly:
+You can omit `--run` and pass the source directly:
 
 ```sh
+mcpt ./services/EchoService.ts
 mcpt ./services
 ```
 
 ## Compile
 
-Compile a TypeScript services directory into a standalone JavaScript MCP server.
-For best startup performance in MCP clients, compile your service and run the
-generated JavaScript entrypoint instead of parsing TypeScript on every launch:
+Compile a TypeScript service file or services directory into a standalone
+JavaScript MCP server. For best startup performance in MCP clients, compile your
+service and run the generated JavaScript entrypoint instead of parsing
+TypeScript on every launch:
 
 ```sh
+mcpt --compile ./services/EchoService.ts
 mcpt --compile ./services
 ```
 
-By default this writes to `./services/dist`. You can provide a custom output
-directory:
+By default this writes to `dist` inside the source directory, or the parent
+directory when the source is a file. You can provide a custom output directory:
 
 ```sh
+mcpt --compile ./services/EchoService.ts ./build/mcp
 mcpt --compile ./services ./build/mcp
 ```
 

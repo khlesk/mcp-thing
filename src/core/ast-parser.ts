@@ -67,14 +67,14 @@ export class AstParser {
     });
   }
 
-  public parseServiceFiles(servicesDir: string): ServiceMetadata[] {
-    return this.parseServiceFilesWithMeta(servicesDir).metadata;
+  public parseServiceFiles(servicesSource: string): ServiceMetadata[] {
+    return this.parseServiceFilesWithMeta(servicesSource).metadata;
   }
 
-  public parseServiceFilesWithMeta(servicesDir: string): ParseResult {
-    const fullServicesDir = path.resolve(servicesDir);
+  public parseServiceFilesWithMeta(servicesSource: string): ParseResult {
+    const fullServicesSource = path.resolve(servicesSource);
 
-    // Reset the project between parses so we only emit files from the active servicesDir.
+    // Reset the project between parses so we only emit files from the active services source.
     for (const sourceFile of this.project.getSourceFiles()) {
       this.project.removeSourceFile(sourceFile);
     }
@@ -102,8 +102,17 @@ export class AstParser {
       }
     };
 
-    this.logger.info(`Finding files in ${fullServicesDir}...`);
-    findFiles(fullServicesDir);
+    this.logger.info(`Finding files in ${fullServicesSource}...`);
+    const sourceStats = fs.statSync(fullServicesSource);
+    if (sourceStats.isDirectory()) {
+      findFiles(fullServicesSource);
+    } else if (
+      sourceStats.isFile() &&
+      fullServicesSource.endsWith('.ts') &&
+      !fullServicesSource.endsWith('.d.ts')
+    ) {
+      allFiles.push(fullServicesSource);
+    }
     allFiles.sort((a, b) => a.localeCompare(b));
     this.logger.info(`Found ${allFiles.length} candidate files.`);
 

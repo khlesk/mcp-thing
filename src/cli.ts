@@ -19,7 +19,7 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   // 1. Resolve CLI Arguments
-  let servicesDir = '';
+  let servicesSource = '';
   let outputDir = '';
   let isCompileMode = false;
   const cliServerInfo: Partial<ServerInfo> = {};
@@ -95,7 +95,9 @@ async function main() {
     const distArg = args[compileFlagIndex + 2];
 
     if (!sourceArg || sourceArg.startsWith('-')) {
-      console.error('Error: Compile mode requires a <source> directory.');
+      console.error(
+        'Error: Compile mode requires a <source> file or directory.',
+      );
       console.error('Usage: mcpt --compile <source> <dist?>');
       console.error(
         '       [--server-name <name>] [--server-version <version>] [--result-mode <structured|content>] [--verbose] [--silent]',
@@ -103,7 +105,7 @@ async function main() {
       process.exit(1);
     }
 
-    servicesDir = sourceArg;
+    servicesSource = sourceArg;
     if (distArg && !distArg.startsWith('-')) {
       outputDir = distArg;
     }
@@ -112,24 +114,24 @@ async function main() {
     if (hasRunFlag) {
       const sourceArg = args[runFlagIndex + 1];
       if (!sourceArg || sourceArg.startsWith('-')) {
-        console.error('Error: Run mode requires a <source> directory.');
+        console.error('Error: Run mode requires a <source> file or directory.');
         console.error('Usage: mcpt --run <source>');
         console.error(
           '       [--server-name <name>] [--server-version <version>] [--result-mode <structured|content>] [--verbose] [--silent]',
         );
         process.exit(1);
       }
-      servicesDir = sourceArg;
+      servicesSource = sourceArg;
     } else {
       const positionalArgs = args.filter((a) => !a.startsWith('-'));
       if (positionalArgs.length > 0) {
-        servicesDir = positionalArgs[0];
+        servicesSource = positionalArgs[0];
       }
     }
   }
 
-  if (!servicesDir) {
-    console.error('Error: No <source> directory provided.');
+  if (!servicesSource) {
+    console.error('Error: No <source> file or directory provided.');
     console.error('Usage: mcpt --run <source>');
     console.error('   or: mcpt --compile <source> <dist?>');
     console.error(
@@ -138,18 +140,23 @@ async function main() {
     process.exit(1);
   }
 
-  const absoluteServicesDir = path.resolve(process.cwd(), servicesDir);
+  const absoluteServicesSource = path.resolve(process.cwd(), servicesSource);
 
-  if (!fs.existsSync(absoluteServicesDir)) {
+  if (!fs.existsSync(absoluteServicesSource)) {
     console.error(
-      `Error: Services directory not found: ${absoluteServicesDir}`,
+      `Error: Services source not found: ${absoluteServicesSource}`,
     );
     process.exit(1);
   }
 
+  const sourceStats = fs.statSync(absoluteServicesSource);
+  const servicesRoot = sourceStats.isDirectory()
+    ? absoluteServicesSource
+    : path.dirname(absoluteServicesSource);
+
   // Resolve tsconfig.json by walking up the directory tree
   let tsconfigPath = '';
-  let currDir = absoluteServicesDir;
+  let currDir = servicesRoot;
   while (true) {
     const potentialPath = path.join(currDir, 'tsconfig.json');
     if (fs.existsSync(potentialPath)) {
@@ -168,7 +175,7 @@ async function main() {
       tsconfigPath = path.resolve(__dirname, '../../tsconfig.json');
     }
     logger.info(
-      `No tsconfig.json found in ${absoluteServicesDir} or parents. Using fallback: ${tsconfigPath}`,
+      `No tsconfig.json found in ${servicesRoot} or parents. Using fallback: ${tsconfigPath}`,
     );
   } else {
     logger.info(`Using tsconfig.json: ${tsconfigPath}`);
@@ -177,10 +184,10 @@ async function main() {
   // 2. Handle Compile Mode
   if (isCompileMode) {
     if (!outputDir) {
-      outputDir = path.join(absoluteServicesDir, 'dist');
+      outputDir = path.join(servicesRoot, 'dist');
     }
     const compiler = new Compiler(tsconfigPath, logger);
-    await compiler.compile(absoluteServicesDir, outputDir, {
+    await compiler.compile(absoluteServicesSource, outputDir, {
       serverInfo: cliServerInfo,
       resultMode,
     });
@@ -188,16 +195,16 @@ async function main() {
     return;
   }
 
-  logger.info(`Using services directory: ${absoluteServicesDir}`);
+  logger.info(`Using services source: ${absoluteServicesSource}`);
 
   // 3. Normal Startup Mode
   // 3.1 Check for package.json and node_modules
-  const pkgPath = path.join(absoluteServicesDir, 'package.json');
+  const pkgPath = path.join(servicesRoot, 'package.json');
   if (fs.existsSync(pkgPath)) {
-    const nodeModulesPath = path.join(absoluteServicesDir, 'node_modules');
+    const nodeModulesPath = path.join(servicesRoot, 'node_modules');
     if (!fs.existsSync(nodeModulesPath)) {
       logger.warn(
-        'package.json found in services directory, but node_modules is missing.',
+        'package.json found in services source directory, but node_modules is missing.',
       );
       logger.warn(
         'You may need to run "npm install" in that directory to resolve dependencies.',
@@ -208,9 +215,9 @@ async function main() {
   const parser = new AstParser(tsconfigPath, logger);
 
   // 4. Scan and Parse Services
-  logger.info(`Scanning for services in: ${absoluteServicesDir}...`);
+  logger.info(`Scanning for services in: ${absoluteServicesSource}...`);
   const { metadata, serverInfo: jsdocServerInfo } =
-    parser.parseServiceFilesWithMeta(absoluteServicesDir);
+    parser.parseServiceFilesWithMeta(absoluteServicesSource);
   logger.info(`Found ${metadata.length} service classes.`);
 
   const effectiveServerInfo = mergeServerInfo(

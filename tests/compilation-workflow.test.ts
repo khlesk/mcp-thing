@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 const rootDir = process.cwd();
@@ -65,6 +66,37 @@ describe('Compilation Workflow Test', () => {
     expect(buildPackageJson.dependencies['mcp-thing']).toBe(
       `^${rootPackageJson.version}`,
     );
+  });
+
+  it('should successfully compile a single TypeScript service file', () => {
+    const distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcpt-single-file-'));
+    const serviceFile = path.join(testServicesDir, 'HelloService.ts');
+
+    const cliPath = path.join(
+      testServicesDir,
+      'node_modules',
+      'mcp-thing',
+      'dist',
+      'cli.js',
+    );
+    execSync(
+      `"${process.execPath}" "${cliPath}" --compile "${serviceFile}" "${distDir}" --server-name "Single File Server"`,
+      { cwd: testServicesDir, stdio: 'inherit' },
+    );
+
+    expect(fs.existsSync(path.join(distDir, 'index.js'))).toBe(true);
+    expect(fs.existsSync(path.join(distDir, 'schema-manifest.json'))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(distDir, 'HelloService.js'))).toBe(true);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(distDir, 'schema-manifest.json'), 'utf-8'),
+    );
+    expect(manifest.serverInfo.name).toBe('Single File Server');
+    expect(manifest.services).toHaveLength(1);
+    expect(manifest.services[0].className).toBe('HelloService');
+    expect(manifest.services[0].fileName).toBe('./HelloService.js');
   });
 
   it('should be able to start the compiled server (smoke test)', async () => {

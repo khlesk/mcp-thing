@@ -28,11 +28,11 @@ export class Compiler {
 
   /**
    * Compiles TS services into JS and generates a static manifest and entrypoint.
-   * @param servicesDir The directory containing source .ts services
+   * @param servicesSource The source .ts service file or directory containing services
    * @param outputDir The destination directory for the build
    */
   public async compile(
-    servicesDir: string,
+    servicesSource: string,
     outputDir: string,
     options: CompileOptions = {},
   ): Promise<void> {
@@ -43,12 +43,12 @@ export class Compiler {
     }
 
     this.logger.info('Starting compilation...');
-    this.logger.info(`Source: ${servicesDir}`);
+    this.logger.info(`Source: ${servicesSource}`);
     this.logger.info(`Output: ${absoluteOutputDir}`);
 
     // 1. Parse Metadata
     const { metadata, serverInfo: parsedServerInfo } =
-      this.parser.parseServiceFilesWithMeta(servicesDir);
+      this.parser.parseServiceFilesWithMeta(servicesSource);
     const resolvedServerInfo = mergeServerInfo(
       DEFAULT_SERVER_INFO,
       parsedServerInfo,
@@ -82,13 +82,20 @@ export class Compiler {
 
     // 3. Emit JS Files
     this.logger.info('Emitting JS files...');
-    const normalizedServicesDir = path
-      .normalize(path.resolve(servicesDir))
+    const absoluteServicesSource = path.resolve(servicesSource);
+    const sourceStats = fs.statSync(absoluteServicesSource);
+    const normalizedServicesSource = path
+      .normalize(absoluteServicesSource)
       .toLowerCase();
+    const normalizedServicesRoot = sourceStats.isDirectory()
+      ? normalizedServicesSource
+      : path.dirname(normalizedServicesSource);
 
     const sourceFiles = this.parser.project.getSourceFiles().filter((sf) => {
       const sfPath = path.normalize(sf.getFilePath()).toLowerCase();
-      return sfPath.startsWith(normalizedServicesDir);
+      if (sourceStats.isFile()) return sfPath === normalizedServicesSource;
+      const relativePath = path.relative(normalizedServicesRoot, sfPath);
+      return relativePath !== '' && !relativePath.startsWith('..');
     });
 
     this.logger.info(`Found ${sourceFiles.length} files to emit.`);

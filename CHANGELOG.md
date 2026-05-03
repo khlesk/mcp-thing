@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Added support for using a single TypeScript service file as the CLI source for both `--run` and `--compile`.
+- Updated source path handling so file sources resolve `tsconfig.json`, dependency checks, and default compile output from the file's parent directory.
+
 ## 0.2.0
 
 - Added structured tool results by default, with `--result-mode content` and `@mcpResultMode content` for text-only clients.

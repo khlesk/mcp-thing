@@ -78,6 +78,16 @@ describe('AstParser', () => {
       expect(extractMethod?.parameters[0].type).toBe('string[]');
     });
 
+    it('should parse a single service file source', () => {
+      const result = parser.parseServiceFiles(
+        'tests/test-services/HelloService.ts',
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].className).toBe('HelloService');
+      expect(result[0].methods[0].toolName).toBe('hello');
+    });
+
     it('should support tool ignores, constraints, result mode, and return types', () => {
       const result = parser.parseServiceFiles('tests/fixtures');
 
