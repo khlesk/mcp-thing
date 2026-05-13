@@ -38,12 +38,6 @@ npx mcp-thing --run ./services/EchoService.ts
 
 The exported tool is named `EchoService_echo`.
 
-You can also use the short binary name:
-
-```sh
-npx -p mcp-thing mcpt --run ./services
-```
-
 ## Install
 
 Install globally if you want the `mcpt` command available everywhere:
@@ -471,3 +465,7 @@ CLI flags take precedence over JSDoc values.
 
 See `examples/CalculatorService.ts` for a small service with server identity,
 parameter descriptions, and a custom tool name.
+
+A project using `mcp-thing` that can serve as a reference:
+
+- [mcp-readability](https://github.com/khlesk/mcp-readability)
