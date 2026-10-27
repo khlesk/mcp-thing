@@ -59,6 +59,9 @@ export class Transport {
     const server = new Server(this.serverInfo, {
       supportedProtocolVersions: ['2026-07-28', ...SUPPORTED_PROTOCOL_VERSIONS],
       capabilities: { tools: {} },
+      cacheHints: {
+        'tools/list': { ttlMs: 60_000, cacheScope: 'private' },
+      },
     });
 
     server.setRequestHandler('tools/list', async () => {

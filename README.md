@@ -192,6 +192,11 @@ versions receive error `-32022` with the supported versions.
 There are no transport flags or HTTP listener. Remote hosting is outside the
 current scope. Compiled services use the same stdio transport as run mode.
 
+For MCP `2026-07-28`, `tools/list` responses include `ttlMs: 60000` and
+`cacheScope: "private"`. Clients can reuse the tool list for 60 seconds within
+the same authorization context. Tools are sorted by name for stable ordering.
+These hints do not cache tool execution results. Legacy responses omit the hints.
+
 ## Tool Discovery
 
 Tools are discovered from exported TypeScript classes:

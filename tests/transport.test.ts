@@ -104,6 +104,8 @@ describe('Transport', () => {
         name: 'Reflection-Based MCP Server',
         version: '1.0.0',
       });
+      expect(response.result.ttlMs).toBe(0);
+      expect(response.result.cacheScope).toBe('private');
     });
 
     it('calls tools directly without discovery or initialization', async () => {
@@ -123,6 +125,8 @@ describe('Transport', () => {
       expect(response.result.structuredContent).toEqual({
         result: ['article one', 'article two'],
       });
+      expect(response.result.ttlMs).toBeUndefined();
+      expect(response.result.cacheScope).toBeUndefined();
       expect(response.result.content).toEqual([
         {
           type: 'text',
@@ -262,6 +266,46 @@ describe('Transport', () => {
       });
     });
 
+    it.each([
+      { names: [], expected: [] },
+      {
+        names: ['zebra', 'Alpha', 'alpha'],
+        expected: ['Alpha', 'alpha', 'zebra'],
+      },
+    ])('returns private 60-second cache hints and stable tool ordering for $names', async ({
+      names,
+      expected,
+    }) => {
+      const metadata: ServiceMetadata[] = [
+        {
+          className: 'TestService',
+          fileName: 'test.ts',
+          methods: names.map((name) => ({
+            name,
+            toolName: name,
+            description: '',
+            parameters: [],
+          })),
+        },
+      ];
+      serviceContainer.getAllToolsMetadata.mockReturnValue(metadata);
+      await transport.listen();
+
+      const first = await sendRequest('tools/list', { _meta: modernMeta });
+      expect(first.result).toMatchObject({
+        resultType: 'complete',
+        ttlMs: 60_000,
+        cacheScope: 'private',
+      });
+      expect(
+        first.result.tools.map((tool: { name: string }) => tool.name),
+      ).toEqual(expected);
+
+      metadata[0].methods.reverse();
+      const second = await sendRequest('tools/list', { _meta: modernMeta });
+      expect(second.result).toEqual(first.result);
+    });
+
     it('should handle tools/list request', async () => {
       const mockMeta: ServiceMetadata[] = [
         {
@@ -296,6 +340,8 @@ describe('Transport', () => {
       expect(response).not.toBeNull();
       expect(response.id).toBe(2);
       expect(response.result.tools[0].name).toBe('custom-test-tool');
+      expect(response.result.ttlMs).toBeUndefined();
+      expect(response.result.cacheScope).toBeUndefined();
     });
 
     it('should expose array parameter schemas in tools/list', async () => {
