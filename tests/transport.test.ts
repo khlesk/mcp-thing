@@ -123,7 +123,12 @@ describe('Transport', () => {
       expect(response.result.structuredContent).toEqual({
         result: ['article one', 'article two'],
       });
-      expect(response.result.content).toEqual([]);
+      expect(response.result.content).toEqual([
+        {
+          type: 'text',
+          text: JSON.stringify(response.result.structuredContent, null, 2),
+        },
+      ]);
     });
 
     it('rejects unsupported modern versions and accepts a corrected request', async () => {
@@ -445,8 +450,84 @@ describe('Transport', () => {
       const response = getJsonResponse();
       expect(response).not.toBeNull();
       expect(response.id).toBe(3);
-      expect(response.result.content).toEqual([]);
+      expect(response.result.content).toEqual([
+        {
+          type: 'text',
+          text: JSON.stringify(response.result.structuredContent, null, 2),
+        },
+      ]);
       expect(response.result.structuredContent).toEqual({ result: 'success' });
+    });
+
+    it.each([
+      [
+        'object',
+        { title: 'Article', text: 'Article body' },
+        { title: 'Article', text: 'Article body' },
+      ],
+      ['empty input', [], { result: [] }],
+      ['number', 42, { result: 42 }],
+      ['boolean', false, { result: false }],
+      ['null', null, { result: null }],
+      ['undefined', undefined, {}],
+      [
+        'mixed URL outcomes',
+        [
+          {
+            url: 'https://example.com/article',
+            title: 'Article',
+            text: 'Article body',
+          },
+          { url: 'https://example.com/missing', error: 'Article not found' },
+        ],
+        {
+          result: [
+            {
+              url: 'https://example.com/article',
+              title: 'Article',
+              text: 'Article body',
+            },
+            { url: 'https://example.com/missing', error: 'Article not found' },
+          ],
+        },
+      ],
+    ])('returns matching text and structured data for %s', async (_label, value, expected) => {
+      serviceContainer.execute.mockResolvedValue(value);
+      await transport.listen();
+      const response = await sendRequest('tools/call', {
+        name: 'readability',
+        arguments: { urls: [] },
+        _meta: modernMeta,
+      });
+      expect(response.result.structuredContent).toEqual(expected);
+      expect(response.result.content).toEqual([
+        { type: 'text', text: JSON.stringify(expected, null, 2) },
+      ]);
+      expect(JSON.parse(response.result.content[0].text)).toEqual(expected);
+    });
+
+    it.each([
+      undefined,
+      [],
+    ])('adds text to an explicit structured result with content %p', async (content) => {
+      const structuredContent = { result: [{ error: 'Article not found' }] };
+      serviceContainer.execute.mockResolvedValue({
+        structuredContent,
+        content,
+        _meta: { source: 'extractor' },
+      });
+      await transport.listen();
+      const response = await sendRequest('tools/call', {
+        name: 'readability',
+        _meta: modernMeta,
+      });
+      expect(response.result).toMatchObject({
+        structuredContent,
+        content: [
+          { type: 'text', text: JSON.stringify(structuredContent, null, 2) },
+        ],
+        _meta: { source: 'extractor' },
+      });
     });
 
     it('should support per-tool content mode', async () => {

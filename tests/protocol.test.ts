@@ -14,14 +14,72 @@ const serverParameters = {
     'Protocol Test Server',
     '--server-version',
     '2.0.0',
-    path.resolve('tests/fixtures/ArrayService.ts'),
+    path.resolve('tests/fixtures/ReadabilityService.ts'),
   ],
   cwd: process.cwd(),
   stderr: 'pipe' as const,
 };
 
-const toolName = 'ArrayService_extractArticles';
-const urls = ['https://example.com/one', 'https://example.com/two'];
+const toolName = 'readability';
+const articleUrl = 'https://example.com/article';
+const missingUrl = 'https://example.com/missing';
+
+async function verifyResponses(client: Client | LegacyClient) {
+  const { tools } = await client.listTools();
+  expect(tools.map((tool) => tool.name)).toEqual([toolName]);
+  expect(tools[0].outputSchema).toMatchObject({
+    type: 'object',
+    properties: {
+      result: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            url: { type: 'string' },
+            title: { type: 'string' },
+            text: { type: 'string' },
+            error: { type: 'string' },
+          },
+          required: ['url'],
+        },
+      },
+    },
+    required: ['result'],
+  });
+
+  const article = {
+    url: articleUrl,
+    title: 'Example article',
+    text: 'Article body',
+  };
+  const failure = { url: missingUrl, error: 'Article not found' };
+  for (const [urls, expected] of [
+    [[articleUrl], [article]],
+    [
+      [articleUrl, missingUrl],
+      [article, failure],
+    ],
+    [[], []],
+  ] as const) {
+    const result = await client.callTool({
+      name: toolName,
+      arguments: { urls },
+    });
+    expect(result.structuredContent).toEqual({ result: expected });
+    expect(result.content).toEqual([
+      { type: 'text', text: JSON.stringify({ result: expected }, null, 2) },
+    ]);
+    expect(result.isError).not.toBe(true);
+  }
+
+  const error = await client.callTool({
+    name: toolName,
+    arguments: { urls: ['tool-error'] },
+  });
+  expect(error.isError).toBe(true);
+  expect(error.content).toEqual([{ type: 'text', text: 'Extraction failed' }]);
+  expect(error.structuredContent).toBeUndefined();
+}
 
 describe('MCP client compatibility', () => {
   it('supports discovery and tool calls with the current SDK client', async () => {
@@ -49,15 +107,7 @@ describe('MCP client compatibility', () => {
         version: '2.0.0',
       });
 
-      const { tools } = await client.listTools();
-      expect(tools.map((tool) => tool.name)).toEqual([toolName]);
-      const result = await client.callTool({
-        name: toolName,
-        arguments: { urls },
-      });
-      expect(result.structuredContent).toEqual({ result: urls });
-      expect(result.content).toEqual([]);
-      expect(result.isError).not.toBe(true);
+      await verifyResponses(client);
       expect(errors).toEqual([]);
       expect(diagnostics).toContain('Started MCP server on stdio');
     } catch (error) {
@@ -88,15 +138,7 @@ describe('MCP client compatibility', () => {
         name: 'Protocol Test Server',
         version: '2.0.0',
       });
-      const { tools } = await client.listTools();
-      expect(tools.map((tool) => tool.name)).toEqual([toolName]);
-      const result = await client.callTool({
-        name: toolName,
-        arguments: { urls },
-      });
-      expect(result.structuredContent).toEqual({ result: urls });
-      expect(result.content).toEqual([]);
-      expect(result.isError).not.toBe(true);
+      await verifyResponses(client);
       expect(errors).toEqual([]);
     } catch (error) {
       throw new Error(`Legacy client failed. Server stderr:\n${diagnostics}`, {

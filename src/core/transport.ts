@@ -140,7 +140,15 @@ export class Transport {
     if (this.isToolResult(result)) {
       return {
         ...result,
-        content: result.content || [],
+        content:
+          result.content?.length || !result.structuredContent
+            ? result.content || []
+            : [
+                {
+                  type: 'text',
+                  text: this.toTextContent(result.structuredContent),
+                },
+              ],
       };
     }
 
@@ -155,9 +163,10 @@ export class Transport {
       };
     }
 
+    const structuredContent = this.toStructuredContent(result);
     return {
-      content: [],
-      structuredContent: this.toStructuredContent(result),
+      content: [{ type: 'text', text: this.toTextContent(structuredContent) }],
+      structuredContent,
     };
   }
 

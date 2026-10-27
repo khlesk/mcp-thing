@@ -401,7 +401,7 @@ Complex return types may still be returned as structured data at runtime, but
 
 ## Tool Results
 
-Successful tool calls default to structured MCP results:
+Successful tool calls default to structured MCP results with a JSON text block:
 
 ```ts
 public info(name: string) {
@@ -413,7 +413,12 @@ Default MCP result:
 
 ```json
 {
-  "content": [],
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"name\": \"yay\",\n  \"version\": \"1.0.0\"\n}"
+    }
+  ],
   "structuredContent": {
     "name": "yay",
     "version": "1.0.0"
@@ -421,8 +426,11 @@ Default MCP result:
 }
 ```
 
-This avoids duplicating JSON into both text content and structured content.
-`content` is still present because MCP requires it to be an array.
+The text block contains the JSON serialization of `structuredContent`. Text-only
+clients and structured clients receive the same data, including the
+`{ "result": [...] }` wrapper for arrays. The advertised `outputSchema` describes
+`structuredContent`. Per-item failures and their messages remain in both
+representations.
 
 Return behavior in structured mode:
 
@@ -433,7 +441,7 @@ Return behavior in structured mode:
 
 ### Content Mode
 
-Use content mode when a client only reads regular text content.
+Use content mode to return only text content without `structuredContent`.
 
 Globally:
 
@@ -480,6 +488,10 @@ export class ImportService {
   }
 }
 ```
+
+Explicit results preserve their content blocks, error flag, and metadata. If an
+explicit result has `structuredContent` and no content blocks, the transport adds
+a JSON text block containing that structured data.
 
 This is optional and mainly useful for partial success or custom error
 formatting. For normal failures, throw an error.

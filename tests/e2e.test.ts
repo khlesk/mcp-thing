@@ -151,7 +151,12 @@ describe('E2E External Services', () => {
     });
 
     expect(response.result).toBeDefined();
-    expect(response.result.content).toEqual([]);
+    expect(response.result.content).toEqual([
+      {
+        type: 'text',
+        text: JSON.stringify(response.result.structuredContent, null, 2),
+      },
+    ]);
     expect(response.result.structuredContent).toEqual({
       result: 'HELLO, WORLD!',
     });
