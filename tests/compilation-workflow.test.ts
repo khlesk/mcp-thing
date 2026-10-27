@@ -2,6 +2,8 @@ import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const rootDir = process.cwd();
 const testServicesDir = path.join(rootDir, 'tests', 'test-services');
@@ -99,7 +101,7 @@ describe('Compilation Workflow Test', () => {
     expect(manifest.services[0].fileName).toBe('./HelloService.js');
   });
 
-  it('should be able to start the compiled server (smoke test)', async () => {
+  it('serves discovery and tool calls from the compiled server', async () => {
     const distDir = path.join(testServicesDir, 'dist');
 
     const { spawnSync } = await import('node:child_process');
@@ -129,5 +131,34 @@ describe('Compilation Workflow Test', () => {
     expect(output).not.toContain("Cannot find package 'mcp-thing'");
     expect(output).not.toContain('ERR_MODULE_NOT_FOUND');
     expect(output).not.toContain('Fatal error');
+
+    const client = new Client(
+      { name: 'compiled-test-client', version: '1.0.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [path.join(distDir, 'index.js')],
+      cwd: distDir,
+      stderr: 'pipe',
+    });
+    try {
+      await client.connect(transport);
+      expect((await client.discover()).supportedVersions).toContain(
+        '2026-07-28',
+      );
+      expect(client.getServerVersion()).toEqual({
+        name: 'Compiled Server',
+        version: '2.0.0',
+      });
+      const result = await client.callTool({
+        name: 'hello',
+        arguments: { name: 'world' },
+      });
+      expect(result.structuredContent).toEqual({ result: 'HELLO, WORLD!' });
+      expect(result.isError).not.toBe(true);
+    } finally {
+      await client.close();
+    }
   });
 });

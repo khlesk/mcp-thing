@@ -9,7 +9,7 @@ documentation, and TypeScript types become MCP JSON schemas.
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20+
 - A TypeScript service file or services directory
 - `npm install` in the service source directory if your services import dependencies
 
@@ -150,6 +150,47 @@ With compiled output:
 
 Use `--run` while iterating locally. Use compiled output when you want a faster,
 plain JavaScript startup path for MCP clients.
+
+## Protocol versions and transport
+
+Both run mode and compiled servers use stdio. Each protocol message is one JSON
+line on stdout. Framework diagnostics go to stderr. Service methods must also
+write diagnostics to stderr so they do not corrupt the protocol stream.
+
+The transport uses the released `@modelcontextprotocol/server` v2 SDK and supports
+[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning).
+Modern clients can call `server/discover` or invoke tools directly without an
+initialization handshake. Each modern request includes protocol metadata in
+`params._meta`, for example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "EchoService_echo",
+    "arguments": { "text": "hello" },
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "my-client",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  }
+}
+```
+
+Older clients use `initialize` followed by `notifications/initialized`. The SDK
+negotiates `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`.
+If the requested legacy version is unsupported, the initialization response
+offers the SDK's preferred supported legacy version. Unsupported modern
+versions receive error `-32022` with the supported versions.
+
+There are no transport flags or HTTP listener. Remote hosting is outside the
+current scope. Compiled services use the same stdio transport as run mode.
 
 ## Tool Discovery
 

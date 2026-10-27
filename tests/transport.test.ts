@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import {
   afterEach,
   beforeEach,
@@ -7,6 +7,12 @@ import {
   it,
   jest,
 } from '@jest/globals';
+import {
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+  SERVER_INFO_META_KEY,
+} from '@modelcontextprotocol/server';
 import type { ServiceMetadata } from '../src/core/ast-parser.js';
 import { Logger } from '../src/core/logger.js';
 import { Transport } from '../src/core/transport.js';
@@ -14,10 +20,11 @@ import { Transport } from '../src/core/transport.js';
 describe('Transport', () => {
   let transport: Transport;
   let serviceContainer: any;
-  let mockStdin: EventEmitter;
+  let mockStdin: PassThrough;
   let writeSpy: any;
 
   beforeEach(() => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
     serviceContainer = {
       getAllToolsMetadata: jest.fn(),
       getToolName: jest.fn((service: ServiceMetadata, method: any) => {
@@ -28,8 +35,7 @@ describe('Transport', () => {
     };
 
     transport = new Transport(serviceContainer);
-    mockStdin = new EventEmitter() as any;
-    (mockStdin as any).setEncoding = jest.fn();
+    mockStdin = new PassThrough();
 
     jest.spyOn(process, 'stdin', 'get').mockReturnValue(mockStdin as any);
     writeSpy = jest
@@ -37,7 +43,8 @@ describe('Transport', () => {
       .mockImplementation(() => true);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await transport.close();
     jest.restoreAllMocks();
   });
 
@@ -51,17 +58,164 @@ describe('Transport', () => {
     return null;
   };
 
+  const modernMeta = {
+    [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+    [CLIENT_INFO_META_KEY]: { name: 'test-client', version: '1.0.0' },
+    [CLIENT_CAPABILITIES_META_KEY]: {},
+  };
+
+  const sendRequest = async (method: string, params: unknown) => {
+    writeSpy.mockClear();
+    mockStdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })}\n`,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    return getJsonResponse();
+  };
+
   describe('listen', () => {
+    it.each([
+      ['2025-11-25', '2025-11-25'],
+      ['2025-06-18', '2025-06-18'],
+      ['2025-03-26', '2025-03-26'],
+      ['2024-11-05', '2024-11-05'],
+      ['2024-10-07', '2024-10-07'],
+      ['1900-01-01', '2025-11-25'],
+    ])('negotiates legacy version %s as %s', async (requested, expected) => {
+      await transport.listen();
+      const response = await sendRequest('initialize', {
+        protocolVersion: requested,
+        capabilities: {},
+        clientInfo: { name: 'old-client', version: '1.0.0' },
+      });
+      expect(response.result.protocolVersion).toBe(expected);
+      expect(response.result.capabilities.tools).toEqual({});
+      expect(response.result._meta).toBeUndefined();
+    });
+
+    it('handles discovery without initialization and identifies the server', async () => {
+      await transport.listen();
+      const response = await sendRequest('server/discover', {
+        _meta: modernMeta,
+      });
+      expect(response.result.supportedVersions).toContain('2026-07-28');
+      expect(response.result.capabilities.tools).toEqual({});
+      expect(response.result._meta[SERVER_INFO_META_KEY]).toEqual({
+        name: 'Reflection-Based MCP Server',
+        version: '1.0.0',
+      });
+    });
+
+    it('calls tools directly without discovery or initialization', async () => {
+      serviceContainer.execute.mockResolvedValue([
+        'article one',
+        'article two',
+      ]);
+      await transport.listen();
+      const response = await sendRequest('tools/call', {
+        name: 'readability',
+        arguments: { urls: ['https://example.com'] },
+        _meta: modernMeta,
+      });
+      expect(serviceContainer.execute).toHaveBeenCalledWith('readability', {
+        urls: ['https://example.com'],
+      });
+      expect(response.result.structuredContent).toEqual({
+        result: ['article one', 'article two'],
+      });
+      expect(response.result.content).toEqual([]);
+    });
+
+    it('rejects unsupported modern versions and accepts a corrected request', async () => {
+      serviceContainer.execute.mockResolvedValue('success');
+      await transport.listen();
+      const response = await sendRequest('tools/call', {
+        name: 'readability',
+        _meta: { ...modernMeta, [PROTOCOL_VERSION_META_KEY]: '2099-01-01' },
+      });
+      expect(response.error.code).toBe(-32022);
+      expect(response.error.data).toMatchObject({
+        requested: '2099-01-01',
+        supported: expect.arrayContaining(['2026-07-28']),
+      });
+      expect(serviceContainer.execute).not.toHaveBeenCalled();
+      const retry = await sendRequest('tools/call', {
+        name: 'readability',
+        _meta: modernMeta,
+      });
+      expect(retry.result.structuredContent).toEqual({ result: 'success' });
+    });
+
+    it('validates metadata on every modern request', async () => {
+      serviceContainer.execute.mockResolvedValue('success');
+      await transport.listen();
+      await sendRequest('tools/call', {
+        name: 'readability',
+        _meta: modernMeta,
+      });
+      serviceContainer.execute.mockClear();
+      const response = await sendRequest('tools/call', {
+        name: 'readability',
+        _meta: { ...modernMeta, [CLIENT_INFO_META_KEY]: 'invalid' },
+      });
+      expect(response.error.code).toBe(-32602);
+      expect(serviceContainer.execute).not.toHaveBeenCalled();
+    });
+
+    it('buffers fragmented messages and processes multiple lines', async () => {
+      serviceContainer.execute.mockResolvedValue('success');
+      await transport.listen();
+      const request = `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'readability', _meta: modernMeta },
+      })}\n`;
+      mockStdin.write(request.slice(0, 20));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(writeSpy).not.toHaveBeenCalled();
+      mockStdin.write(request.slice(20) + request.replace('"id":1', '"id":2'));
+      await new Promise((resolve) => setImmediate(resolve));
+      const responses = writeSpy.mock.calls.map(([line]: [string]) =>
+        JSON.parse(line),
+      );
+      expect(responses.map((response: any) => response.id).sort()).toEqual([
+        1, 2,
+      ]);
+      expect(serviceContainer.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('writes invalid-message diagnostics to stderr and recovers', async () => {
+      const errorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+      await transport.listen();
+      mockStdin.write('{"jsonrpc":"invalid"}\n');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[mcp-thing] MCP transport error:',
+        expect.any(Error),
+      );
+      const response = await sendRequest('server/discover', {
+        _meta: modernMeta,
+      });
+      expect(response.result.supportedVersions).toContain('2026-07-28');
+    });
+
     it('should handle initialize request', async () => {
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: '1',
           method: 'initialize',
-          params: {},
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'test-client', version: '1.0.0' },
+          },
         })}\n`,
       );
 
@@ -79,13 +233,16 @@ describe('Transport', () => {
       });
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 'cfg',
           method: 'initialize',
-          params: {},
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'test-client', version: '1.0.0' },
+          },
         })}\n`,
       );
 
@@ -119,8 +276,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 2,
@@ -163,8 +319,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 22,
@@ -215,8 +370,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 23,
@@ -252,8 +406,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 24,
@@ -275,8 +428,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 3,
@@ -311,8 +463,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 33,
@@ -349,8 +500,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 36,
@@ -378,8 +528,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 34,
@@ -407,8 +556,7 @@ describe('Transport', () => {
 
       await transport.listen();
 
-      mockStdin.emit(
-        'data',
+      mockStdin.write(
         `${JSON.stringify({
           jsonrpc: '2.0',
           id: 35,

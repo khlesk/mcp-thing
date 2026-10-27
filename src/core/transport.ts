@@ -1,5 +1,13 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { JSONRPCServer } from 'json-rpc-2.0';
+import {
+  type CallToolResult,
+  Server,
+  SUPPORTED_PROTOCOL_VERSIONS,
+  type Tool,
+} from '@modelcontextprotocol/server';
+import {
+  type StdioServerHandle,
+  serveStdio,
+} from '@modelcontextprotocol/server/stdio';
 import type { ResultMode } from './ast-parser.js';
 import { Logger } from './logger.js';
 import { SchemaBuilder } from './schema-builder.js';
@@ -29,7 +37,7 @@ export interface TransportOptions {
 }
 
 export class Transport {
-  private server: JSONRPCServer;
+  private handle?: StdioServerHandle;
   private schemaBuilder: SchemaBuilder;
   private serviceContainer: ServiceContainer;
   private serverInfo: ServerInfo;
@@ -40,31 +48,20 @@ export class Transport {
     serviceContainer: ServiceContainer,
     options: TransportOptions = {},
   ) {
-    this.server = new JSONRPCServer();
     this.schemaBuilder = new SchemaBuilder(options.logger);
     this.serviceContainer = serviceContainer;
     this.serverInfo = mergeServerInfo(DEFAULT_SERVER_INFO, options.serverInfo);
     this.logger = options.logger || new Logger();
     this.resultMode = options.resultMode || 'structured';
-    this.setupHandlers();
   }
 
-  private setupHandlers(): void {
-    // MCP Initialize
-    this.server.addMethod('initialize', async (_request: unknown) => {
-      return {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: {
-            listChanged: true,
-          },
-        },
-        serverInfo: this.serverInfo,
-      };
+  private createServer(): Server {
+    const server = new Server(this.serverInfo, {
+      supportedProtocolVersions: ['2026-07-28', ...SUPPORTED_PROTOCOL_VERSIONS],
+      capabilities: { tools: {} },
     });
 
-    // MCP tools/list
-    this.server.addMethod('tools/list', async () => {
+    server.setRequestHandler('tools/list', async () => {
       const services = this.serviceContainer.getAllToolsMetadata();
       const tools: Tool[] = [];
 
@@ -78,93 +75,68 @@ export class Transport {
           tools.push({
             name: this.serviceContainer.getToolName(service, method),
             description: method.description,
-            inputSchema: this.schemaBuilder.buildInputSchema(method) as {
-              type: 'object';
-              properties: Record<string, object>;
-              required?: string[];
-            },
+            inputSchema: this.schemaBuilder.buildInputSchema(
+              method,
+            ) as Tool['inputSchema'],
             ...(outputSchema
               ? {
-                  outputSchema: outputSchema as {
-                    type: 'object';
-                    properties?: Record<string, object>;
-                    required?: string[];
-                  },
+                  outputSchema: outputSchema as Tool['outputSchema'],
                 }
               : {}),
           });
         }
       }
 
+      tools.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       return { tools };
     });
 
     // MCP tools/call
-    this.server.addMethod(
-      'tools/call',
-      async (params: { name: string; arguments?: Record<string, unknown> }) => {
-        try {
-          const { name, arguments: args } = params;
-          const result = await this.serviceContainer.execute(name, args || {});
-          const metadata = this.serviceContainer.getToolMetadata?.(name);
-          const resultMode =
-            metadata?.method.resultMode || this.resultMode || 'structured';
+    server.setRequestHandler('tools/call', async ({ params }) => {
+      try {
+        const { name, arguments: args } = params;
+        const result = await this.serviceContainer.execute(name, args || {});
+        const metadata = this.serviceContainer.getToolMetadata?.(name);
+        const resultMode =
+          metadata?.method.resultMode || this.resultMode || 'structured';
 
-          return this.normalizeToolResult(result, resultMode);
-        } catch (error: unknown) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: 'text',
-                text:
-                  error instanceof Error
-                    ? error.message
-                    : 'Unknown error occurred during tool execution.',
-              },
-            ],
-          };
-        }
-      },
-    );
-
-    // Fallback for notifications
-    this.server.addMethod('notifications/initialized', () => null);
-  }
-
-  public async listen(): Promise<void> {
-    process.stdin.setEncoding('utf8');
-
-    let buffer = '';
-    process.stdin.on('data', async (chunk) => {
-      buffer += chunk;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-
-        try {
-          const request = JSON.parse(line);
-          const response = await this.server.receive(request);
-          if (response) {
-            process.stdout.write(`${JSON.stringify(response)}\n`);
-          }
-        } catch (err: unknown) {
-          this.logger.error(
-            `Error processing JSON-RPC line: ${line} ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
+        return this.normalizeToolResult(result, resultMode);
+      } catch (error: unknown) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text:
+                error instanceof Error
+                  ? error.message
+                  : 'Unknown error occurred during tool execution.',
+            },
+          ],
+        };
       }
     });
 
+    return server;
+  }
+
+  public async listen(): Promise<void> {
+    if (this.handle) throw new Error('Transport is already listening.');
+    this.handle = serveStdio(() => this.createServer(), {
+      onerror: (error) => this.logger.error('MCP transport error:', error),
+    });
     this.logger.started(this.getExportedToolNames());
+  }
+
+  public async close(): Promise<void> {
+    await this.handle?.close();
+    this.handle = undefined;
   }
 
   private normalizeToolResult(
     result: unknown,
     resultMode: ResultMode,
-  ): ToolResult {
+  ): CallToolResult {
     if (this.isToolResult(result)) {
       return {
         ...result,
