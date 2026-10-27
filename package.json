@@ -1,6 +1,6 @@
 {
   "name": "mcp-thing",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Reflection-based CLI to expose TypeScript classes as MCP tools over stdio.",
   "repository": {
     "type": "git",

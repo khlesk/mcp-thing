@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Migrated stdio transport to `@modelcontextprotocol/server` v2, with MCP `2026-07-28` support and legacy protocol negotiation.
+- Added JSON text blocks alongside structured tool results so text-only clients receive the same data.
+- Added private 60-second cache hints to modern `tools/list` responses.
+- Sorted tools by name for stable discovery results.
+
 ## 0.2.1
 
 - Added support for using a single TypeScript service file as the CLI source for both `--run` and `--compile`.
