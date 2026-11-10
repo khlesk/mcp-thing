@@ -243,6 +243,24 @@ export class GreetingService {
 }
 ```
 
+## Tool annotations
+
+Use `@mcpAnnotations` with a JSON object to describe a tool to MCP clients:
+
+```ts
+/**
+ * Read the current status.
+ * @mcpAnnotations {"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
+ */
+public status(): string { return 'ready'; }
+```
+
+Supported properties are `title` as a string and `readOnlyHint`,
+`destructiveHint`, `idempotentHint`, and `openWorldHint` as booleans.
+Invalid values fail parsing. The compiler preserves annotations in the manifest,
+and the transport includes them in `tools/list`. These are client hints, not
+permission checks.
+
 ## Input Schemas
 
 `mcp-thing` infers MCP input schemas from TypeScript method parameters.

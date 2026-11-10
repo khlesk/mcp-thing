@@ -78,6 +78,7 @@ export class Transport {
           tools.push({
             name: this.serviceContainer.getToolName(service, method),
             description: method.description,
+            ...(method.annotations ? { annotations: method.annotations } : {}),
             inputSchema: this.schemaBuilder.buildInputSchema(
               method,
             ) as Tool['inputSchema'],

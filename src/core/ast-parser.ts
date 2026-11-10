@@ -17,6 +17,13 @@ import type { ServerInfo } from './server-info.js';
 export interface MethodMetadata {
   name: string;
   toolName?: string;
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
   description: string;
   returnType?: string;
   returnSchema?: JsonSchema;
@@ -229,6 +236,7 @@ export class AstParser {
         jsDocs.length > 0 ? jsDocs[0].getDescription().trim() : '';
       let toolName: string | undefined;
       let resultMode: ResultMode | undefined;
+      let annotations: MethodMetadata['annotations'];
 
       if (jsDocs.length > 0) {
         for (const tag of jsDocs[0].getTags()) {
@@ -237,6 +245,26 @@ export class AstParser {
 
           if (tagName === 'mcpToolName' || tagName === 'toolName') {
             toolName = comment;
+          }
+
+          if (tagName === 'mcpAnnotations') {
+            const value = JSON.parse(comment);
+            if (!value || typeof value !== 'object' || Array.isArray(value))
+              throw new Error('mcpAnnotations must be an object.');
+            for (const [key, item] of Object.entries(value)) {
+              if (
+                key === 'title'
+                  ? typeof item !== 'string'
+                  : ![
+                      'readOnlyHint',
+                      'destructiveHint',
+                      'idempotentHint',
+                      'openWorldHint',
+                    ].includes(key) || typeof item !== 'boolean'
+              )
+                throw new Error('Invalid mcpAnnotations entry.');
+            }
+            annotations = value;
           }
 
           if (tagName === 'mcpResultMode') {
@@ -278,6 +306,7 @@ export class AstParser {
       methods.push({
         name: methodName,
         toolName,
+        annotations,
         description,
         returnType: this.getReturnTypeText(method),
         returnSchema: this.typeToSchema(method.getReturnType(), {
