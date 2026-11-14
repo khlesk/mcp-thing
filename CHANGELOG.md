@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Added `@mcpAnnotations` for tool titles and behavior hints, preserved in compiled manifests and `tools/list` responses.
+- Disabled source and declaration map generation and excluded maps from the npm package.
+- Fixed the E2E test to use the public `tsx` loader and corrected test formatting.
+
 ## 0.3.0
 
 - Migrated stdio transport to `@modelcontextprotocol/server` v2, with MCP `2026-07-28` support and legacy protocol negotiation.

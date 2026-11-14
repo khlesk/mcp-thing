@@ -1,6 +1,6 @@
 {
   "name": "mcp-thing",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Reflection-based CLI to expose TypeScript classes as MCP tools over stdio.",
   "repository": {
     "type": "git",
@@ -46,7 +46,8 @@
     "test": "tests"
   },
   "files": [
-    "dist/**",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
     "tsconfig.json",
     "CHANGELOG.md",
     "README.md",

@@ -272,39 +272,39 @@ describe('Transport', () => {
         names: ['zebra', 'Alpha', 'alpha'],
         expected: ['Alpha', 'alpha', 'zebra'],
       },
-    ])('returns private 60-second cache hints and stable tool ordering for $names', async ({
-      names,
-      expected,
-    }) => {
-      const metadata: ServiceMetadata[] = [
-        {
-          className: 'TestService',
-          fileName: 'test.ts',
-          methods: names.map((name) => ({
-            name,
-            toolName: name,
-            description: '',
-            parameters: [],
-          })),
-        },
-      ];
-      serviceContainer.getAllToolsMetadata.mockReturnValue(metadata);
-      await transport.listen();
+    ])(
+      'returns private 60-second cache hints and stable tool ordering for $names',
+      async ({ names, expected }) => {
+        const metadata: ServiceMetadata[] = [
+          {
+            className: 'TestService',
+            fileName: 'test.ts',
+            methods: names.map((name) => ({
+              name,
+              toolName: name,
+              description: '',
+              parameters: [],
+            })),
+          },
+        ];
+        serviceContainer.getAllToolsMetadata.mockReturnValue(metadata);
+        await transport.listen();
 
-      const first = await sendRequest('tools/list', { _meta: modernMeta });
-      expect(first.result).toMatchObject({
-        resultType: 'complete',
-        ttlMs: 60_000,
-        cacheScope: 'private',
-      });
-      expect(
-        first.result.tools.map((tool: { name: string }) => tool.name),
-      ).toEqual(expected);
+        const first = await sendRequest('tools/list', { _meta: modernMeta });
+        expect(first.result).toMatchObject({
+          resultType: 'complete',
+          ttlMs: 60_000,
+          cacheScope: 'private',
+        });
+        expect(
+          first.result.tools.map((tool: { name: string }) => tool.name),
+        ).toEqual(expected);
 
-      metadata[0].methods.reverse();
-      const second = await sendRequest('tools/list', { _meta: modernMeta });
-      expect(second.result).toEqual(first.result);
-    });
+        metadata[0].methods.reverse();
+        const second = await sendRequest('tools/list', { _meta: modernMeta });
+        expect(second.result).toEqual(first.result);
+      },
+    );
 
     it('should handle tools/list request', async () => {
       const mockMeta: ServiceMetadata[] = [
@@ -537,44 +537,47 @@ describe('Transport', () => {
           ],
         },
       ],
-    ])('returns matching text and structured data for %s', async (_label, value, expected) => {
-      serviceContainer.execute.mockResolvedValue(value);
-      await transport.listen();
-      const response = await sendRequest('tools/call', {
-        name: 'readability',
-        arguments: { urls: [] },
-        _meta: modernMeta,
-      });
-      expect(response.result.structuredContent).toEqual(expected);
-      expect(response.result.content).toEqual([
-        { type: 'text', text: JSON.stringify(expected, null, 2) },
-      ]);
-      expect(JSON.parse(response.result.content[0].text)).toEqual(expected);
-    });
+    ])(
+      'returns matching text and structured data for %s',
+      async (_label, value, expected) => {
+        serviceContainer.execute.mockResolvedValue(value);
+        await transport.listen();
+        const response = await sendRequest('tools/call', {
+          name: 'readability',
+          arguments: { urls: [] },
+          _meta: modernMeta,
+        });
+        expect(response.result.structuredContent).toEqual(expected);
+        expect(response.result.content).toEqual([
+          { type: 'text', text: JSON.stringify(expected, null, 2) },
+        ]);
+        expect(JSON.parse(response.result.content[0].text)).toEqual(expected);
+      },
+    );
 
-    it.each([
-      undefined,
-      [],
-    ])('adds text to an explicit structured result with content %p', async (content) => {
-      const structuredContent = { result: [{ error: 'Article not found' }] };
-      serviceContainer.execute.mockResolvedValue({
-        structuredContent,
-        content,
-        _meta: { source: 'extractor' },
-      });
-      await transport.listen();
-      const response = await sendRequest('tools/call', {
-        name: 'readability',
-        _meta: modernMeta,
-      });
-      expect(response.result).toMatchObject({
-        structuredContent,
-        content: [
-          { type: 'text', text: JSON.stringify(structuredContent, null, 2) },
-        ],
-        _meta: { source: 'extractor' },
-      });
-    });
+    it.each([undefined, []])(
+      'adds text to an explicit structured result with content %p',
+      async (content) => {
+        const structuredContent = { result: [{ error: 'Article not found' }] };
+        serviceContainer.execute.mockResolvedValue({
+          structuredContent,
+          content,
+          _meta: { source: 'extractor' },
+        });
+        await transport.listen();
+        const response = await sendRequest('tools/call', {
+          name: 'readability',
+          _meta: modernMeta,
+        });
+        expect(response.result).toMatchObject({
+          structuredContent,
+          content: [
+            { type: 'text', text: JSON.stringify(structuredContent, null, 2) },
+          ],
+          _meta: { source: 'extractor' },
+        });
+      },
+    );
 
     it('should support per-tool content mode', async () => {
       serviceContainer.execute.mockResolvedValue({ ok: true });

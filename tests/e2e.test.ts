@@ -4,13 +4,6 @@ import path from 'node:path';
 const projectRoot = process.cwd();
 const cliTs = path.resolve(projectRoot, 'src', 'cli.ts');
 const testServicesDir = path.resolve(projectRoot, 'tests', 'test-services');
-const tsxCli = path.resolve(
-  projectRoot,
-  'node_modules',
-  'tsx',
-  'dist',
-  'cli.cjs',
-);
 
 describe('E2E External Services', () => {
   let serverProcess: any;
@@ -29,7 +22,8 @@ describe('E2E External Services', () => {
     serverProcess = spawn(
       process.execPath,
       [
-        tsxCli,
+        '--import',
+        'tsx',
         cliTs,
         '--server-name',
         'E2E Server',
